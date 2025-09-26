@@ -26,3 +26,5 @@ class HistoryResponse(BaseModel):
     word_mappings: List[LineMapping]
     language: str
     created_at: str
+    username: str
+    is_favorite: bool = False

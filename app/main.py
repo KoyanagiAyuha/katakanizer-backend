@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import create_tables
-from .routers import auth_router, convert_router, history_router
+from .routers import auth_router, convert_router, history_router, favorites_router, profile_router
 from .logger_config import setup_logging
 
 # Setup logging
@@ -31,6 +31,8 @@ def startup_event():
 app.include_router(auth_router)
 app.include_router(convert_router)
 app.include_router(history_router)
+app.include_router(favorites_router)
+app.include_router(profile_router)
 
 
 @app.get("/")

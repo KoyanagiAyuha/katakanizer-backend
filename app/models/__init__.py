@@ -3,7 +3,16 @@ from .auth import (
     UserLoginRequest,
     UserResponse,
     Token,
-    RefreshTokenRequest
+    RefreshTokenRequest,
+    EmailVerificationRequest,
+    PasswordResetRequest,
+    PasswordResetConfirmRequest,
+    ResendVerificationRequest,
+    RegistrationResponse,
+    UpdateUsernameRequest,
+    UpdateEmailRequest,
+    UpdatePasswordRequest,
+    UserProfileResponse
 )
 from .convert import (
     ConvertRequest,
@@ -14,10 +23,19 @@ from .convert import (
 
 __all__ = [
     "UserRegisterRequest",
-    "UserLoginRequest", 
+    "UserLoginRequest",
     "UserResponse",
     "Token",
     "RefreshTokenRequest",
+    "EmailVerificationRequest",
+    "PasswordResetRequest",
+    "PasswordResetConfirmRequest",
+    "ResendVerificationRequest",
+    "RegistrationResponse",
+    "UpdateUsernameRequest",
+    "UpdateEmailRequest",
+    "UpdatePasswordRequest",
+    "UserProfileResponse",
     "ConvertRequest",
     "LineMapping",
     "ConvertResponse",

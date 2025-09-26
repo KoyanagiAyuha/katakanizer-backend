@@ -4,11 +4,13 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from passlib.context import CryptContext
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from .database import get_db, User, RefreshToken
+from .services.email_service import EmailService
 
 # パスワードハッシュ化
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -143,7 +145,7 @@ def verify_refresh_token(db: Session, token: str) -> Optional[User]:
         user = get_user_by_username(db, username)
         return user
         
-    except JWTError:
+    except PyJWTError:
         return None
 
 def create_tokens(db: Session, user: User) -> Tuple[str, str]:
@@ -193,7 +195,7 @@ def get_current_user(
     """現在のユーザー取得（JWT認証）"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="認証情報を確認できませんでした",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
@@ -207,7 +209,7 @@ def get_current_user(
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-    except JWTError:
+    except PyJWTError:
         raise credentials_exception
     
     user = get_user_by_username(db, username)
@@ -219,5 +221,77 @@ def get_current_user(
 def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     """アクティブユーザー取得"""
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise HTTPException(status_code=400, detail="無効なユーザーです")
+    if not current_user.is_email_verified:
+        raise HTTPException(status_code=403, detail="メールアドレスが確認されていません")
     return current_user
+
+async def send_verification_email(db: Session, user: User) -> bool:
+    """メール確認用のメールを送信（JWT版）"""
+    # JWTトークンを生成（DBには保存しない）
+    token = EmailService.generate_verification_token(user.email)
+
+    # メール送信
+    return await EmailService.send_verification_email(user.email, user.username, token)
+
+async def verify_email_token(db: Session, token: str) -> Optional[User]:
+    """メール確認トークンを検証（JWT版）"""
+    # JWTトークンからメールアドレスを取得
+    email = EmailService.verify_verification_token(token)
+    if not email:
+        return None
+
+    # メールアドレスでユーザーを検索
+    user = get_user_by_email(db, email)
+    if not user:
+        return None
+
+    # 既に確認済みでもユーザーを返す（重複リクエスト対策）
+    if user.is_email_verified:
+        return user
+
+    # 未確認の場合は確認済みにする
+    user.is_email_verified = True
+    db.commit()
+    return user
+
+async def send_password_reset_email(db: Session, email: str) -> bool:
+    """パスワードリセット用のメールを送信（JWT版）"""
+    user = get_user_by_email(db, email)
+    if not user:
+        return False
+
+    # JWTトークンを生成（DBには保存しない）
+    token = EmailService.generate_password_reset_token(email)
+
+    # メール送信
+    return await EmailService.send_password_reset_email(user.email, user.username, token)
+
+def verify_password_reset_token(db: Session, token: str) -> Optional[User]:
+    """パスワードリセットトークンを検証（JWT版）"""
+    # JWTトークンからメールアドレスを取得
+    email = EmailService.verify_password_reset_token(token)
+    if not email:
+        return None
+
+    # メールアドレスでユーザーを検索
+    user = get_user_by_email(db, email)
+    return user
+
+def reset_password(db: Session, token: str, new_password: str) -> bool:
+    """パスワードをリセット"""
+    user = verify_password_reset_token(db, token)
+    if not user:
+        return False
+
+    if not validate_password(new_password):
+        return False
+
+    # パスワードを更新
+    user.hashed_password = get_password_hash(new_password)
+    db.commit()
+
+    # 全リフレッシュトークンを無効化（セキュリティ対策）
+    revoke_user_refresh_tokens(db, user.id)
+
+    return True

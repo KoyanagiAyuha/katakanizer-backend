@@ -1,16 +1,36 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+import time
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..database import get_db, ConversionHistory, LineMapping as LineMappingDB
+from ..database import get_db, ConversionHistory, LineMapping as LineMappingDB, User
 from ..models import ConvertRequest, ConvertResponse
 from ..openai_service import converter
 from ..auth import get_current_user
 from ..services.convert_utils import fill_missing_conversions
+from ..services.rate_limiter import check_rate_limit, increment_usage, get_remaining_conversions, get_reset_time
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 router = APIRouter(prefix="/api", tags=["convert"])
+
+
+@router.get("/convert/status")
+def get_conversion_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """変換API利用状況を取得"""
+    remaining = get_remaining_conversions(current_user, db)
+    reset_time = get_reset_time()
+
+    return {
+        "remaining_conversions": remaining,
+        "daily_limit": -1 if current_user.is_premium else 5,
+        "is_premium": current_user.is_premium,
+        "reset_time": reset_time,
+        "daily_conversion_count": current_user.daily_conversion_count
+    }
 
 
 @router.post("/convert/test")
@@ -40,10 +60,26 @@ async def convert_text_test(request: ConvertRequest):
 
 @router.post("/convert", response_model=ConvertResponse)
 async def convert_text(
-    request: ConvertRequest, 
+    request: ConvertRequest,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
+    # API利用制限をチェック
+    if not check_rate_limit(current_user, db):
+        remaining = get_remaining_conversions(current_user, db)
+        reset_time = get_reset_time()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "message": "本日の変換回数制限に達しました",
+                "remaining_conversions": remaining,
+                "reset_time": reset_time,
+                "is_premium": False,
+                "upgrade_message": "プレミアムプランにアップグレードすると無制限に変換できます"
+            }
+        )
+
+    start_time = time.time()
     text = request.text.strip()
     title = request.title.strip() or "無題"
     
@@ -85,7 +121,11 @@ async def convert_text(
         db.add(line_mapping)
     
     db.commit()
-    
+
+    # API使用履歴を記録
+    response_time_ms = int((time.time() - start_time) * 1000)
+    increment_usage(current_user, "/api/convert", db, response_time_ms)
+
     return ConvertResponse(
         title=title,
         word_mappings=word_mappings
