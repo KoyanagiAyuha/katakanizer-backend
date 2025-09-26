@@ -1,4 +1,6 @@
 import os
+import json
+from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,7 +13,14 @@ setup_logging()
 
 app = FastAPI(title="Katakanizer API", version="1.0.0")
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+# CORS設定 - 環境変数からJSON配列またはカンマ区切り文字列を読み込み
+cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+try:
+    # JSON配列として解析を試みる
+    cors_origins = json.loads(cors_origins_env)
+except (json.JSONDecodeError, TypeError):
+    # 失敗したらカンマ区切りとして処理
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(",")]
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,3 +47,13 @@ app.include_router(profile_router)
 @app.get("/")
 def read_root():
     return {"message": "Katakanizer API is running"}
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "katakanizer-backend"
+    }
