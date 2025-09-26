@@ -1,7 +1,9 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Index
+import time
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Index, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.exc import OperationalError
 from datetime import datetime
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./katakanizer.db")
@@ -13,7 +15,23 @@ if DATABASE_URL.startswith("postgresql://"):
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    engine = create_engine(DATABASE_URL)
+    # PostgreSQL用の接続プール設定を改善（Neon対応）
+    engine = create_engine(
+        DATABASE_URL,
+        # 接続プールの設定（Neonのアイドル対策）
+        pool_size=2,  # プールサイズを小さく
+        max_overflow=3,  # オーバーフローも小さく
+        pool_timeout=30,  # プール取得タイムアウト
+        pool_recycle=300,  # 5分でコネクション再利用（Neonのアイドル対策）
+        pool_pre_ping=True,  # 接続前にpingして死んだ接続を検出（重要）
+        connect_args={
+            "keepalives": 1,
+            "keepalives_idle": 10,  # より短い間隔でキープアライブ
+            "keepalives_interval": 5,
+            "keepalives_count": 3,
+            "connect_timeout": 10,  # 接続タイムアウト設定
+        }
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -136,11 +154,24 @@ class ApiUsage(Base):
 
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    """データベースセッションを取得（リトライ機能付き）"""
+    retries = 3
+    for attempt in range(retries):
+        try:
+            db = SessionLocal()
+            # 接続確認のためのテストクエリ
+            db.execute(text("SELECT 1"))
+            try:
+                yield db
+            finally:
+                db.close()
+            break
+        except OperationalError as e:
+            if attempt < retries - 1:
+                time.sleep(1)  # リトライ前に少し待機
+                continue
+            else:
+                raise e
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
