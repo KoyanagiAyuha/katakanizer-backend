@@ -6,7 +6,7 @@ sqlalchemy==2.0.43
 psycopg[binary]==3.2.3
 openai>=1.55.0
 aiohttp>=3.8.0
-passlib[bcrypt]==1.7.4
+bcrypt==5.0.0
 pyjwt==2.8.0
 resend==2.4.0
 alembic==1.16.5

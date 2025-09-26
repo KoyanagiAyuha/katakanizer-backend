@@ -3,7 +3,7 @@ import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
-from passlib.context import CryptContext
+import bcrypt
 import jwt
 from jwt.exceptions import PyJWTError
 from fastapi import HTTPException, Depends, status
@@ -11,9 +11,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from .database import get_db, User, RefreshToken
 from .services.email_service import EmailService
-
-# パスワードハッシュ化
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT設定
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
@@ -26,11 +23,19 @@ security = HTTPBearer()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """パスワード検証"""
-    return pwd_context.verify(plain_password, hashed_password)
+    # bcryptは72バイトまでしかサポートしないため、長いパスワードは切り詰める
+    if len(plain_password) > 72:
+        plain_password = plain_password[:72]
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def get_password_hash(password: str) -> str:
     """パスワードハッシュ化"""
-    return pwd_context.hash(password)
+    # bcryptは72バイトまでしかサポートしないため、長いパスワードは切り詰める
+    if len(password) > 72:
+        password = password[:72]
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
 
 def validate_password(password: str) -> bool:
     """
