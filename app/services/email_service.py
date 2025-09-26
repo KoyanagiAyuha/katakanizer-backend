@@ -1,21 +1,16 @@
-import os
 import secrets
 from typing import Optional
 import resend
 from datetime import datetime, timedelta
 import jwt
 
+from ..config import get_settings
+
+settings = get_settings()
+
 # Resend APIの設定
-resend.api_key = os.getenv("RESEND_API_KEY")
-
-# メール設定
-FROM_EMAIL = os.getenv("FROM_EMAIL", "noreply@yourdomain.com")
-FROM_NAME = os.getenv("FROM_NAME", "Katakanizer")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
-
-# JWT設定
-JWT_SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
-JWT_ALGORITHM = "HS256"
+if settings.resend_api_key:
+    resend.api_key = settings.resend_api_key
 
 class EmailService:
     @staticmethod
@@ -26,13 +21,13 @@ class EmailService:
             "exp": datetime.utcnow() + timedelta(hours=24),
             "type": "email_verification"
         }
-        return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+        return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
     @staticmethod
     def verify_verification_token(token: str) -> Optional[str]:
         """メール確認トークンを検証し、メールアドレスを返す"""
         try:
-            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
             if payload.get("type") != "email_verification":
                 return None
             return payload.get("email")
@@ -47,13 +42,13 @@ class EmailService:
             "exp": datetime.utcnow() + timedelta(hours=1),
             "type": "password_reset"
         }
-        return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+        return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
     @staticmethod
     def verify_password_reset_token(token: str) -> Optional[str]:
         """パスワードリセットトークンを検証し、メールアドレスを返す"""
         try:
-            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
             if payload.get("type") != "password_reset":
                 return None
             return payload.get("email")
@@ -63,7 +58,7 @@ class EmailService:
     @staticmethod
     async def send_verification_email(email: str, username: str, token: str) -> bool:
         """メール確認用メールを送信"""
-        verification_url = f"{FRONTEND_URL}/verify-email?token={token}"
+        verification_url = f"{settings.frontend_url}/verify-email?token={token}"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -99,7 +94,7 @@ class EmailService:
 
         try:
             params = {
-                "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+                "from": f"Katakanizer <{settings.from_email}>",
                 "to": [email],
                 "subject": "Katakanizer - メールアドレスの確認",
                 "html": html_content,
@@ -114,7 +109,7 @@ class EmailService:
     @staticmethod
     async def send_password_reset_email(email: str, username: str, token: str) -> bool:
         """パスワードリセット用メールを送信"""
-        reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
+        reset_url = f"{settings.frontend_url}/reset-password?token={token}"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -153,7 +148,7 @@ class EmailService:
 
         try:
             params = {
-                "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+                "from": f"Katakanizer <{settings.from_email}>",
                 "to": [email],
                 "subject": "Katakanizer - パスワードリセット",
                 "html": html_content,

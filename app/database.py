@@ -1,4 +1,3 @@
-import os
 import time
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Index, text
 from sqlalchemy.ext.declarative import declarative_base
@@ -6,23 +5,21 @@ from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.exc import OperationalError
 from datetime import datetime
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./katakanizer.db")
+from .config import get_settings
 
-# PostgreSQL URLをpsycopg3用に調整
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
+settings = get_settings()
 
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+if settings.is_sqlite:
+    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
 else:
     # PostgreSQL用の接続プール設定を改善（Neon対応）
     engine = create_engine(
-        DATABASE_URL,
+        settings.database_url,
         # 接続プールの設定（Neonのアイドル対策）
-        pool_size=2,  # プールサイズを小さく
-        max_overflow=3,  # オーバーフローも小さく
-        pool_timeout=30,  # プール取得タイムアウト
-        pool_recycle=300,  # 5分でコネクション再利用（Neonのアイドル対策）
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        pool_recycle=settings.db_pool_recycle,
         pool_pre_ping=True,  # 接続前にpingして死んだ接続を検出（重要）
         connect_args={
             "keepalives": 1,

@@ -1,14 +1,27 @@
+"""
+変換ルーター
+
+テキスト変換関連のエンドポイントを提供します。
+"""
+
 import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 
-from ..database import get_db, ConversionHistory, LineMapping as LineMappingDB, User
-from ..models import ConvertRequest, ConvertResponse
-from ..openai_service import converter
-from ..auth import get_current_user
-from ..services.convert_utils import fill_missing_conversions
-from ..services.rate_limiter import check_rate_limit, increment_usage, get_remaining_conversions, get_reset_time
+from ..dependencies import (
+    get_conversion_service,
+    get_current_user,
+    get_current_active_user
+)
+from ..services import ConversionService
+from ..database import User
+from ..models.convert import ConvertRequest, ConvertResponse
+from ..exceptions import (
+    RateLimitError,
+    ConversionError,
+    to_http_exception,
+    rate_limit_exceeded_error
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -17,117 +30,82 @@ router = APIRouter(prefix="/api", tags=["convert"])
 
 @router.get("/convert/status")
 def get_conversion_status(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    conversion_service: ConversionService = Depends(get_conversion_service)
 ):
     """変換API利用状況を取得"""
-    remaining = get_remaining_conversions(current_user, db)
-    reset_time = get_reset_time()
-
-    return {
-        "remaining_conversions": remaining,
-        "daily_limit": -1 if current_user.is_premium else 5,
-        "is_premium": current_user.is_premium,
-        "reset_time": reset_time,
-        "daily_conversion_count": current_user.daily_conversion_count
-    }
+    return conversion_service.get_conversion_status(current_user)
 
 
 @router.post("/convert/test")
-async def convert_text_test(request: ConvertRequest):
+async def convert_text_test(
+    request: ConvertRequest,
+    conversion_service: ConversionService = Depends(get_conversion_service)
+):
     """Test endpoint without authentication"""
-    text = request.text.strip()
-    logger.debug(f"=== TEST CONVERT DEBUG ===")
-    logger.debug(f"Input text: {text}")
-    
-    # 統合されたGPT呼び出し - 1回で全て取得
-    conversion_result = converter.convert_text_complete(text, request.language)
-    logger.debug(f"GPT result: {conversion_result}")
-    
-    if not conversion_result:
-        logger.warning(f"GPT conversion failed, using empty result for testing: {text[:50]}...")
-        conversion_result = {"phrase_mappings": []}
-    
-    # GPT変換が成功した場合
-    initial_mappings = conversion_result["phrase_mappings"]
-    logger.debug(f"Initial mappings: {initial_mappings}")
-    
-    # 抜け漏れをチェックして補完
-    word_mappings = fill_missing_conversions(text, initial_mappings)
-    logger.debug(f"Final word mappings: {word_mappings}")
-    
-    return {"title": request.title, "word_mappings": word_mappings}
+    try:
+        result = await conversion_service.convert_text_test(
+            text=request.text,
+            title=request.title,
+            language=request.language
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Test conversion failed: {str(e)}")
+        # テスト用なので、エラーが発生しても基本的な結果を返す
+        return {"title": request.title, "word_mappings": []}
+
 
 @router.post("/convert", response_model=ConvertResponse)
 async def convert_text(
     request: ConvertRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_active_user),
+    conversion_service: ConversionService = Depends(get_conversion_service)
 ):
-    # API利用制限をチェック
-    if not check_rate_limit(current_user, db):
-        remaining = get_remaining_conversions(current_user, db)
-        reset_time = get_reset_time()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "message": "本日の変換回数制限に達しました",
-                "remaining_conversions": remaining,
-                "reset_time": reset_time,
-                "is_premium": False,
-                "upgrade_message": "プレミアムプランにアップグレードすると無制限に変換できます"
-            }
-        )
-
+    """テキスト変換"""
     start_time = time.time()
-    text = request.text.strip()
-    title = request.title.strip() or "無題"
-    
-    # 統合されたGPT呼び出し - 1回で全て取得
-    conversion_result = converter.convert_text_complete(text, request.language)
-    
-    if not conversion_result:
-        # GPT変換が失敗した場合は空の結果でテスト
-        logger.warning(f"GPT conversion failed, using empty result for testing: {text[:50]}...")
-        conversion_result = {"phrase_mappings": []}
-    
-    # GPT変換が成功した場合
-    initial_mappings = conversion_result["phrase_mappings"]
-    
-    # 抜け漏れをチェックして補完
-    word_mappings = fill_missing_conversions(text, initial_mappings)
-    logger.debug(f"Conversion successful for text length: {len(text)}, mappings: {len(word_mappings)}")
-    
-    # Save to history
-    history_entry = ConversionHistory(
-        title=title,
-        original_text=text,
-        language=request.language,
-        user_id=current_user.id
-    )
-    db.add(history_entry)
-    db.commit()
-    db.refresh(history_entry)
-    
-    # Save line mappings
-    for i, mapping in enumerate(word_mappings):
-        line_mapping = LineMappingDB(
-            conversion_id=history_entry.id,
-            line_text=mapping["line"],
-            casual_katakana=mapping["casual"],
-            formal_katakana=mapping["formal"],
-            line_order=i
+
+    try:
+        # 変換処理実行
+        result = await conversion_service.convert_text(
+            text=request.text,
+            title=request.title,
+            language=request.language,
+            user=current_user
         )
-        db.add(line_mapping)
-    
-    db.commit()
 
-    # API使用履歴を記録
-    response_time_ms = int((time.time() - start_time) * 1000)
-    increment_usage(current_user, "/api/convert", db, response_time_ms)
+        # レスポンス時間をログに記録
+        response_time_ms = int((time.time() - start_time) * 1000)
+        logger.debug(f"Conversion completed in {response_time_ms}ms")
 
-    return ConvertResponse(
-        id=history_entry.id,
-        title=title,
-        word_mappings=word_mappings
-    )
+        return ConvertResponse(**result)
+
+    except RuntimeError as e:
+        # レート制限エラーの特別処理
+        error_details = str(e)
+        if "制限" in error_details:
+            # RuntimeErrorからRateLimitErrorに変換
+            try:
+                # エラーの詳細情報を解析
+                import ast
+                error_dict = ast.literal_eval(error_details)
+                raise to_http_exception(rate_limit_exceeded_error(
+                    remaining=error_dict.get("remaining_conversions", 0),
+                    reset_time=error_dict.get("reset_time", ""),
+                    is_premium=error_dict.get("is_premium", False)
+                ))
+            except (ValueError, SyntaxError):
+                # 解析に失敗した場合は一般的なレート制限エラー
+                status_info = conversion_service.get_conversion_status(current_user)
+                raise to_http_exception(rate_limit_exceeded_error(
+                    remaining=status_info["remaining_conversions"],
+                    reset_time=status_info["reset_time"],
+                    is_premium=status_info["is_premium"]
+                ))
+        else:
+            # その他のランタイムエラー
+            raise to_http_exception(ConversionError(str(e)))
+
+    except Exception as e:
+        logger.error(f"Unexpected error in conversion: {str(e)}")
+        raise to_http_exception(ConversionError("予期しないエラーが発生しました"))
