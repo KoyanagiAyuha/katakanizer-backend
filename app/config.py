@@ -74,9 +74,9 @@ class Settings(BaseSettings):
     )
 
     # CORS settings
-    cors_origins: List[str] = Field(
-        default=["http://localhost:3000"],
-        env="CORS_ORIGINS",
+    cors_origins: str = Field(
+        default="http://localhost:3000",
+        alias="CORS_ORIGINS",
         description="CORS許可オリジン"
     )
 
@@ -116,18 +116,21 @@ class Settings(BaseSettings):
         description="デバッグモード"
     )
 
-    @field_validator('cors_origins', mode='before')
-    @classmethod
-    def parse_cors_origins(cls, v):
-        """CORS設定をパース"""
-        if isinstance(v, str):
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """CORS設定をリストとして取得"""
+        if not self.cors_origins:
+            return ["http://localhost:3000"]
+
+        # JSON配列形式の場合
+        if self.cors_origins.startswith('[') and self.cors_origins.endswith(']'):
             try:
-                # JSON配列として解析を試みる
-                return json.loads(v)
+                return json.loads(self.cors_origins)
             except (json.JSONDecodeError, TypeError):
-                # 失敗したらカンマ区切りとして処理
-                return [origin.strip() for origin in v.split(",")]
-        return v
+                pass
+
+        # カンマ区切りとして処理
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @field_validator('database_url', mode='before')
     @classmethod
