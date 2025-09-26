@@ -45,7 +45,7 @@ def get_database_session() -> Generator[Session, None, None]:
     Returns:
         データベースセッション
     """
-    return get_db()
+    yield from get_db()
 
 
 # === Repository Dependencies ===
