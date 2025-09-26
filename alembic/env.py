@@ -31,6 +31,9 @@ def get_database_url():
     # First try environment variable
     database_url = os.getenv('DATABASE_URL')
     if database_url:
+        # PostgreSQL URLをpsycopg3用に調整
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://")
         return database_url
 
     # Build from individual components
@@ -40,7 +43,7 @@ def get_database_url():
     db_port = os.getenv('DB_PORT', '5432')
     db_name = os.getenv('DB_NAME', 'katakanizer')
 
-    return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    return f"postgresql+psycopg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
 # Override sqlalchemy.url with environment variable
 config.set_main_option('sqlalchemy.url', get_database_url())
