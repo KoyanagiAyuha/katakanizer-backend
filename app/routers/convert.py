@@ -127,6 +127,7 @@ async def convert_text(
     increment_usage(current_user, "/api/convert", db, response_time_ms)
 
     return ConvertResponse(
+        id=history_entry.id,
         title=title,
         word_mappings=word_mappings
     )

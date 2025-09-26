@@ -15,6 +15,7 @@ class LineMapping(BaseModel):
 
 
 class ConvertResponse(BaseModel):
+    id: int
     title: str
     word_mappings: List[LineMapping]
 
