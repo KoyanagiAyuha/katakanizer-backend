@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_USER=katakanizer
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=katakanizer
+    ports:
+      - "5432:5432"
+    volumes:
+      - katakanizer_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U katakanizer -d katakanizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  katakanizer_postgres_data:
