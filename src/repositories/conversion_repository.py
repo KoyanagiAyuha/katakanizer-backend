@@ -73,6 +73,8 @@ class ConversionRepository(BaseRepository[ConversionHistory]):
     ) -> list[ConversionHistory]:
         query = select(ConversionHistory).where(ConversionHistory.is_public.is_(True))
 
+        query = query.options(selectinload(ConversionHistory.user))
+
         if include_mappings:
             query = query.options(selectinload(ConversionHistory.line_mappings))
 

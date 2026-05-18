@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_conversion_service, get_current_user, get_database_session
+from ..dependencies import (
+    get_conversion_service,
+    get_current_user,
+    get_database_session,
+    get_optional_current_user,
+)
 from ..models import User
 from ..repositories import FavoriteRepository
 from ..schemas import HistoryResponse, LineMapping
@@ -53,10 +58,20 @@ async def get_my_conversion_history(
 async def get_recent_conversions(
     limit: int = 10,
     offset: int = 0,
+    current_user: User | None = Depends(get_optional_current_user),
     conversion_service: ConversionService = Depends(get_conversion_service),
+    db: AsyncSession = Depends(get_database_session),
 ):
     """最新の公開変換履歴を取得"""
     results = await conversion_service.get_public_conversions(skip=offset, limit=limit)
+
+    favorite_ids: set[int] = set()
+    if current_user:
+        favorite_repo = FavoriteRepository(db)
+        favorites = await favorite_repo.get_user_favorites(
+            current_user.id, include_conversions=False
+        )
+        favorite_ids = {fav.conversion_id for fav in favorites}
 
     return [
         HistoryResponse(
@@ -74,6 +89,7 @@ async def get_recent_conversions(
             language=entry.language,
             created_at=entry.created_at.isoformat(),
             username=entry.user.username if entry.user else "Anonymous",
+            is_favorite=entry.id in favorite_ids,
         )
         for entry in results
     ]

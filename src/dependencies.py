@@ -1,7 +1,6 @@
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .config import get_settings
 from .database import get_db
 from .middlewares import get_firebase_user, get_optional_firebase_user
 from .models import User
@@ -12,9 +11,6 @@ from .repositories import (
     UserRepository,
 )
 from .services import ConversionService, FavoritesService, UserService
-
-settings = get_settings()
-
 
 # === Database Dependencies ===
 
@@ -75,17 +71,13 @@ async def get_current_user(
     firebase_user: dict = Depends(get_firebase_user),
     user_service: UserService = Depends(get_user_service),
 ) -> User:
-    """Firebase 認証済みユーザーから DB ユーザーを取得（なければ作成）"""
-    if not firebase_user.get("email_verified"):
+    """Firebase 認証済みユーザーから DB ユーザーを取得"""
+    user = await user_service.get_user_by_firebase_uid(firebase_user["uid"])
+    if not user:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="メールアドレスの検証が必要です",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ユーザーが登録されていません。先にサインアップしてください。",
         )
-
-    user, _ = await user_service.get_or_create_user(
-        firebase_uid=firebase_user["uid"],
-        email=firebase_user["email"],
-    )
     return user
 
 
@@ -93,18 +85,11 @@ async def get_optional_current_user(
     firebase_user: dict | None = Depends(get_optional_firebase_user),
     user_service: UserService = Depends(get_user_service),
 ) -> User | None:
-    """認証オプショナル（メール検証済みのみ）"""
+    """認証オプショナル"""
     if not firebase_user:
         return None
 
-    if not firebase_user.get("email_verified"):
-        return None
-
-    user, _ = await user_service.get_or_create_user(
-        firebase_uid=firebase_user["uid"],
-        email=firebase_user["email"],
-    )
-    return user
+    return await user_service.get_user_by_firebase_uid(firebase_user["uid"])
 
 
 async def get_premium_user(current_user: User = Depends(get_current_user)) -> User:

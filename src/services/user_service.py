@@ -11,9 +11,11 @@ class UserService:
         self.db = db
         self.user_repo = UserRepository(db)
 
-    async def get_or_create_user(self, firebase_uid: str, email: str) -> tuple[User, bool]:
+    async def get_or_create_user(
+        self, firebase_uid: str, email: str, username: str | None = None
+    ) -> tuple[User, bool]:
         """Firebase ユーザーから DB ユーザーを取得または作成"""
-        return await self.user_repo.get_or_create_by_firebase(firebase_uid, email)
+        return await self.user_repo.get_or_create_by_firebase(firebase_uid, email, username)
 
     async def get_user_by_firebase_uid(self, firebase_uid: str) -> User | None:
         return await self.user_repo.get_by_firebase_uid(firebase_uid)

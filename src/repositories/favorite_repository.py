@@ -74,7 +74,10 @@ class FavoriteRepository(BaseRepository[Favorite]):
             select(ConversionHistory)
             .join(Favorite)
             .where(Favorite.user_id == user_id)
-            .options(selectinload(ConversionHistory.line_mappings))
+            .options(
+                selectinload(ConversionHistory.line_mappings),
+                selectinload(ConversionHistory.user),
+            )
             .order_by(desc(Favorite.created_at))
             .offset(skip)
             .limit(limit)

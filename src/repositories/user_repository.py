@@ -27,20 +27,25 @@ class UserRepository(BaseRepository[User]):
         return result.scalar_one_or_none() is not None
 
     async def get_or_create_by_firebase(
-        self, firebase_uid: str, email: str
+        self, firebase_uid: str, email: str, username: str | None = None
     ) -> tuple[User, bool]:
         """Firebase UID でユーザーを取得、なければ作成"""
         user = await self.get_by_firebase_uid(firebase_uid)
         if user:
             return user, False
 
-        # ユーザー名をメールアドレスから生成
-        base_username = email.split("@")[0]
-        username = base_username
-        counter = 1
-        while await self.is_username_taken(username):
-            username = f"{base_username}{counter}"
-            counter += 1
+        if username:
+            # フロントから指定されたユーザー名を使用
+            if await self.is_username_taken(username):
+                raise ValueError("このユーザー名は既に使用されています")
+        else:
+            # フォールバック: メールアドレスから生成
+            base_username = email.split("@")[0]
+            username = base_username
+            counter = 1
+            while await self.is_username_taken(username):
+                username = f"{base_username}{counter}"
+                counter += 1
 
         user = await self.create(firebase_uid=firebase_uid, username=username)
         return user, True
