@@ -3,6 +3,13 @@
 .env.local
 .env.*.local
 
+# Secrets (Firebase Admin SDK service account keys 等)
+*firebase-adminsdk*.json
+secrets/
+
+# Scratch
+tmp/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -1,9 +1,34 @@
 import json
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+
+
+def normalize_asyncpg_url(url: str) -> tuple[str, dict]:
+    """asyncpg ドライバ用に DB URL を正規化する。
+
+    Neon などが付与する libpq 形式のクエリ（``sslmode`` / ``channel_binding``）は
+    asyncpg が受け付けないため URL から取り除き、SSL は connect_args で渡す。
+
+    Returns:
+        (正規化後の URL, create_async_engine に渡す connect_args)
+    """
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query))
+    connect_args: dict = {}
+
+    sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+    if sslmode and sslmode != "disable":
+        connect_args["ssl"] = True
+
+    clean = urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
+    return clean, connect_args
 
 # プロジェクトルートの .env ファイルへの絶対パス
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"

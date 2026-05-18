@@ -8,14 +8,7 @@
 
 ## 2. 接続情報の設定
 
-### Step 1: 環境ファイルの作成
-```bash
-cd backend
-cp .env.neon.example .env.neon
-```
-
-### Step 2: Neonの接続情報を記入
-`.env.neon`ファイルを編集して、Neonダッシュボードから取得した情報を記入：
+`.env` ファイルの `DATABASE_URL` に、Neon ダッシュボードから取得した接続文字列を記入する：
 
 ```env
 DATABASE_URL=postgresql://username:password@xxx.neon.tech/dbname?sslmode=require
@@ -24,42 +17,37 @@ DATABASE_URL=postgresql://username:password@xxx.neon.tech/dbname?sslmode=require
 **重要**:
 - `?sslmode=require` は必須（NeonはSSL接続が必要）
 - パスワードに特殊文字が含まれる場合はURLエンコードが必要
+- `postgresql://` は `alembic/env.py` 側で自動的に `postgresql+asyncpg://` に変換される
 
-## 3. 接続テスト
+## 3. マイグレーションの実行
+
+依存は `uv` で管理しているため、`uv run` でそのまま実行できる。
+
+### 初回セットアップ（既存テーブルがある場合）
+
+Neon に既にテーブルが存在する場合は、初回マイグレーションを実行せず
+適用済みとして記録する：
 
 ```bash
-cd backend
-source venv/bin/activate
-python scripts/check_neon_connection.py
+uv run alembic stamp head
+uv run alembic check   # スキーマがモデルと一致しているか確認
 ```
 
-成功すると以下のような出力が表示されます：
-```
-✅ Successfully connected to Neon database!
-   PostgreSQL version: PostgreSQL 16.x
-```
+### 通常のマイグレーション適用
 
-## 4. マイグレーションの実行
-
-### 初回セットアップ
 ```bash
-# スクリプトを使用
-./scripts/migrate_neon.sh
-
-# または手動で
-source venv/bin/activate
-export $(grep -v '^#' .env.neon | xargs)
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ### 新しいマイグレーション作成
+
 ```bash
-source venv/bin/activate
-export $(grep -v '^#' .env.neon | xargs)
-alembic revision --autogenerate -m "Description of changes"
+uv run alembic revision --autogenerate -m "変更内容の説明"
 ```
 
-## 5. 本番環境での運用
+詳細は [README_MIGRATIONS.md](README_MIGRATIONS.md) を参照。
+
+## 4. 本番環境での運用
 
 ### Docker環境の場合
 ```bash
@@ -95,7 +83,7 @@ Error: Permission denied
 
 ## セキュリティ注意事項
 
-1. **`.env.neon`は絶対にGitにコミットしない**
+1. **`.env`は絶対にGitにコミットしない**（`.gitignore` 済み）
 2. **本番環境では環境変数を使用**
 3. **定期的にパスワードを更新**
 4. **IPホワイトリストを設定**（可能な場合）

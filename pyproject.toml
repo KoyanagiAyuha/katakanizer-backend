@@ -35,6 +35,8 @@ ignore = ["E501"]
 
 [dependency-groups]
 dev = [
+    "alembic>=1.18.4",
+    "firebase-admin>=7.4.0",
     "ruff>=0.14.14",
 ]
 
